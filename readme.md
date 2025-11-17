@@ -1,291 +1,777 @@
-# **Image Tagging & Collection Management System**
-## **Offline, Metadata-Driven Photo Organization**
+# **Image Tagger**
+
+Lightweight, offline CLI tool for managing image collections through embedded XMP metadata tags.
 
 ---
 
-## **1. Project Overview**
+## **Features**
 
-This project delivers a **lightweight, CLI-based Python tool** for organizing image collections through **embedded metadata tags**. Unlike database-dependent solutions or cloud services, all tags are stored directly in image files using **XMP metadata standards**, ensuring complete portability and offline operation.
-
-### **Core Philosophy**
-- **Non-destructive:** Original images never move from their root folder
-- **Portable:** Tags embedded in images, readable by any XMP-compatible software
-- **Offline-first:** No internet, cloud, or external services required
-- **Separation of concerns:** Core tool handles tagging; external scripts handle analysis
+- ✅ **Portable:** Tags embedded in images, not databases
+- ✅ **Offline:** No internet or cloud required
+- ✅ **Non-destructive:** Original images never moved
+- ✅ **Cross-platform:** Windows, macOS, Linux
 
 ---
 
-## **2. Problem Statement**
+## **Installation**
 
-Photographers, designers, and digital archivists face common challenges:
-- **Lost organization:** Folder structures become chaotic over time
-- **Database dependency:** Traditional tools use proprietary databases that don't travel with images
-- **Cloud lock-in:** Online solutions require constant connectivity and subscription fees
-- **Complex tools:** Professional software (Lightroom, etc.) is expensive and over-featured for basic needs
-- **Search limitations:** File systems can't search by custom attributes
-
-**This tool solves these problems** by embedding tags directly into images while maintaining a simple, scriptable interface.
-
----
-
-## **3. Key Features**
-
-### **Phase 1: Core Operations (15 Commands)**
-
-#### **A. Tag Management**
-- **add** - Add custom tags to images
-- **remove** - Remove specific or all tags
-- **read** - Display tags with optional export
-- **list-tags** - Show all distinct tags across collection
-- **auto-tag** - One-time migration: generate tags from existing folder structure
-
-#### **B. Import/Export**
-- **export** - Create CSV backup of all images and their tags
-- **import** - Restore tags from CSV backup (merge/overwrite modes)
-- **validate** - Verify CSV integrity before import
-
-#### **C. Collection Creation**
-- **collect** - Create new folder from filename list (searches root folder recursively)
-- **find** - Locate specific files by name across entire folder tree
-- **list-files** - Export inventory of all images
-
-#### **D. Organization**
-- **sort** - Generate temporary tag-based folder views
-- **unsort** - Remove temporary sorted folders
-
-#### **E. Maintenance**
-- **verify** - Check metadata integrity across collection
-- **stats** - Display basic statistics (counts, sizes, formats)
-
----
-
-## **4. Workflow Architecture**
-
-### **Primary Workflow:**
-```
-┌─────────────────┐
-│  Root Folder    │  All original images stored here
-│  (photos/)      │  Images never move
-└────────┬────────┘
-         │
-         ├──→ [1. Tag Images] ──→ Embedded XMP metadata
-         │
-         ├──→ [2. Export CSV] ──→ all_tags.csv (filepath, tags)
-         │                         ↓
-         │                    [External Analysis]
-         │                    (pandas/R/Excel)
-         │                         ↓
-         │                    filtered_files.txt (just filenames)
-         │                         ↓
-         └──→ [3. Create Collection] ──→ New folder with selected images
-```
-
-### **Data Flow:**
-1. **Tagging:** User tags images manually or via folder-based auto-tag
-2. **Export:** Full CSV export contains all filepaths and tags
-3. **External Analysis:** User or scripts query/filter the CSV (out of scope)
-4. **Collection:** Script searches root folder for specified filenames and creates collection
-
----
-
-## **5. Technical Specifications**
-
-### **Technology Stack**
-- **Language:** Python 3.10+
-- **Core Dependency:** `pyexiv2` (XMP metadata handling)
-- **Standard Libraries:** `pathlib`, `shutil`, `argparse`, `csv`
-- **Optional:** `rich` (enhanced CLI output)
-
-### **Metadata Storage**
-- **Format:** XMP (Extensible Metadata Platform)
-- **Field:** `Xmp.dc.subject` (Dublin Core standard)
-- **Compatibility:** Adobe products, EXIF tools, image viewers
-- **Portability:** Tags survive file transfers, cloud sync, OS changes
-
-### **File Operations**
-- **Supported formats:** JPG, JPEG, PNG, WEBP, TIFF
-- **Collision handling:** Automatic renaming with numeric suffixes
-- **Path handling:** Cross-platform (Windows, macOS, Linux)
-
----
-
-## **6. Example Usage**
-
-### **Basic Tagging**
 ```bash
-# Tag images
+# Clone repository
+git clone https://github.com/yourusername/image-tagger.git
+cd image-tagger
+
+# Install dependencies
+pip install py3exiv2
+
+# Verify installation
+python tagger.py --help
+```
+
+---
+
+## **Quick Start**
+
+```bash
+# Tag an image
 python tagger.py add photos/vacation.jpg travel beach sunset
-python tagger.py add photos/wallpaper.png wallpaper 4k nature
 
-# Read tags
-python tagger.py read photos/vacation.jpg
-# Output: travel, beach, sunset
-
-# List all distinct tags
+# List all tags
 python tagger.py list-tags photos/
-# Output: travel, beach, sunset, wallpaper, 4k, nature
+
+# Export tags to CSV
+python tagger.py export photos/ --output backup.csv
+
+# Create collection from file list
+python tagger.py collect photos/ selected.txt collections/favorites/
 ```
 
-### **Legacy Migration**
+---
+
+## **Command Reference**
+
+### **1. Add Tags**
+
+Add custom tags to images.
+
 ```bash
-# Auto-generate tags from existing folder structure
+# Single image
+python tagger.py add photos/image.jpg nature landscape 4k
+
+# Multiple images
+python tagger.py add photos/*.jpg wallpaper
+
+# Recursive (all images in folder)
+python tagger.py add photos/Nature/ --recursive nature
+```
+
+**Output:**
+```
+[✓] Added tags to image.jpg: ['nature', 'landscape', '4k']
+[✓] Added tags to sunset.jpg: ['wallpaper']
+Summary: Successfully tagged 2 images
+```
+
+---
+
+### **2. Remove Tags**
+
+Remove specific or all tags from images.
+
+```bash
+# Remove specific tags
+python tagger.py remove photos/image.jpg old_tag unwanted
+
+# Remove all tags
+python tagger.py remove photos/image.jpg --all
+
+# Remove from multiple images
+python tagger.py remove photos/*.jpg deprecated_tag
+```
+
+**Output:**
+```
+[✓] Removed tags from image.jpg: ['old_tag', 'unwanted']
+Remaining tags: ['nature', 'landscape']
+```
+
+---
+
+### **3. Read Tags**
+
+Display tags from image(s).
+
+```bash
+# Single image (console)
+python tagger.py read photos/image.jpg
+
+# Export to text file
+python tagger.py read photos/image.jpg --output tags.txt
+
+# Export to CSV
+python tagger.py read photos/image.jpg --format csv --output tags.csv
+
+# Multiple images
+python tagger.py read photos/*.jpg --output all_tags.csv --format csv
+```
+
+**Console Output:**
+```
+image.jpg: nature, landscape, 4k
+```
+
+**tags.txt:**
+```
+nature
+landscape
+4k
+```
+
+**tags.csv:**
+```csv
+filename,tags
+image.jpg,"nature,landscape,4k"
+```
+
+---
+
+### **4. List All Tags**
+
+Show all distinct tags across collection.
+
+```bash
+# Basic list (console)
+python tagger.py list-tags photos/
+
+# With image counts
+python tagger.py list-tags photos/ --counts
+
+# Sort by popularity
+python tagger.py list-tags photos/ --counts --sort count
+
+# Export to text file
+python tagger.py list-tags photos/ --output all_tags.txt
+
+# Export to CSV with counts
+python tagger.py list-tags photos/ --output tags.csv --format csv
+```
+
+**Console Output:**
+```
+All distinct tags:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4k                 (12 images)
+beach              (8 images)
+landscape          (15 images)
+nature             (18 images)
+travel             (10 images)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total: 5 distinct tags
+```
+
+**tags.csv:**
+```csv
+tag,count
+4k,12
+beach,8
+landscape,15
+nature,18
+travel,10
+```
+
+---
+
+### **5. Auto-tag from Folders**
+
+One-time migration: generate hierarchical tags from folder structure.
+
+```bash
+# Auto-tag all images
 python tagger.py auto-tag photos/
 
-# Before: photos/Wallpapers/Nature/Mountains/peak.jpg
-# After: Tagged with [wallpapers, wallpapers/nature, wallpapers/nature/mountains]
+# Preview without applying
+python tagger.py auto-tag photos/ --dry-run
+
+# Limit hierarchy depth
+python tagger.py auto-tag photos/ --max-depth 2
 ```
 
-### **Export & Analysis**
+**Example:**
+```
+Before: photos/Wallpapers/Nature/Mountains/peak.jpg
+After:  Tags: [wallpapers, wallpapers/nature, wallpapers/nature/mountains]
+```
+
+**Output:**
+```
+[AUTO-TAG] Scanning photos/ recursively...
+Found 88 images in 15 folders
+
+Processing:
+  [✓] photos/Wallpapers/Nature/peak.jpg
+      Tags: [wallpapers, wallpapers/nature]
+  
+Summary:
+  • Images processed: 88
+  • Unique tag chains: 11
+  • Average tags per image: 2.1
+```
+
+---
+
+### **6. Export Tags**
+
+Export all image paths and tags to CSV.
+
 ```bash
-# Export all tags to CSV
+# Export all tags
 python tagger.py export photos/ --output all_tags.csv
 
-# CSV format:
-# filepath,tags
-# photos/Wallpapers/Nature/peak.jpg,"wallpapers,wallpapers/nature,4k"
-# photos/Travel/beach.jpg,"travel,beach,sunset"
+# Export with relative paths
+python tagger.py export photos/ --output tags.csv --relative
 
-# External analysis (user's own script)
-# Filters CSV, outputs simple filename list: selected.txt
+# Export specific folder (no recursion)
+python tagger.py export photos/Wallpapers/ --output wallpapers.csv --no-recursive
 ```
 
-### **Collection Creation**
-```bash
-# Create collection from filtered results
-python tagger.py collect photos/ selected.txt collections/beach_sunsets/
-
-# selected.txt (just filenames):
-# beach.jpg
-# sunset.jpg
-# vacation.jpg
-
-# Script searches entire photos/ tree, copies found files to collection
+**all_tags.csv:**
+```csv
+filepath,tags
+photos/Wallpapers/Nature/image1.jpg,"wallpapers,wallpapers/nature,4k"
+photos/Personal/Travel/beach.jpg,"personal,personal/travel,beach,sunset"
+photos/Projects/logo.jpg,"projects,branding"
 ```
 
-### **Temporary Sorting**
+---
+
+### **7. Import Tags**
+
+Restore or apply tags from CSV backup.
+
 ```bash
-# Create tag-based sorted views
+# Import and merge with existing tags (default)
+python tagger.py import tags.csv
+
+# Import and overwrite existing tags
+python tagger.py import tags.csv --mode overwrite
+
+# Import only to untagged images
+python tagger.py import tags.csv --mode add-only
+
+# Preview import
+python tagger.py import tags.csv --dry-run
+```
+
+**Output:**
+```
+[IMPORT-CSV] Reading tags.csv...
+Found 88 entries
+
+Import Strategy: MERGE (add to existing tags)
+
+Preview:
+  photos/image1.jpg
+    Current: [travel, personal]
+    Adding: [wallpapers, 4k]
+    Result: [travel, personal, wallpapers, 4k]
+
+Proceed? (y/n): y
+
+[✓] Import complete
+    Images updated: 88
+    Tags added: 156
+```
+
+---
+
+### **8. Validate CSV**
+
+Verify CSV format and file integrity.
+
+```bash
+# Validate CSV
+python tagger.py validate tags.csv
+
+# Detailed report
+python tagger.py validate tags.csv --detailed
+
+# Export validation report
+python tagger.py validate tags.csv --output report.txt
+```
+
+**Output:**
+```
+[VALIDATE-CSV] Checking tags.csv...
+
+Format Validation:
+  [✓] Header row present
+  [✓] Correct columns
+  [✓] UTF-8 encoding
+
+File Path Validation:
+  [✓] 85 files found (96.6%)
+  [⚠] 3 files not found
+
+Tag Validation:
+  [✓] 15 unique tags
+  [✓] No invalid characters
+
+Status: VALID WITH WARNINGS
+```
+
+---
+
+### **9. Create Collection**
+
+Create new folder from filename list (searches root folder recursively).
+
+```bash
+# Create collection from text file
+python tagger.py collect photos/ selected.txt collections/favorites/
+
+# Preview collection
+python tagger.py collect photos/ selected.txt collections/favorites/ --dry-run
+
+# Handle duplicate filenames
+python tagger.py collect photos/ selected.txt collections/favorites/ --duplicates [first|all|skip]
+
+# Use symlinks (save space)
+python tagger.py collect photos/ selected.txt collections/favorites/ --symlinks
+```
+
+**selected.txt:**
+```
+image1.jpg
+sunset.png
+vacation.jpg
+```
+
+**Output:**
+```
+[CREATE-COLLECTION] Searching for 3 files in photos/...
+
+Found: 3 files (100%)
+  ✓ image1.jpg → photos/Wallpapers/Nature/image1.jpg
+  ✓ sunset.png → photos/Personal/Travel/sunset.png
+  ✓ vacation.jpg → photos/Summer/vacation.jpg
+
+Creating collection...
+[✓] Collection created!
+    Location: collections/favorites/
+    Files: 3
+    Size: 24.5 MB
+```
+
+---
+
+### **10. Find Files**
+
+Search for files by name across root folder.
+
+```bash
+# Find specific files
+python tagger.py find photos/ image1.jpg sunset.png
+
+# Find from file list
+python tagger.py find photos/ --files search.txt
+
+# Export found paths
+python tagger.py find photos/ --files search.txt --output found.txt
+
+# Export to CSV
+python tagger.py find photos/ --files search.txt --format csv --output found.csv
+```
+
+**Console Output:**
+```
+Searching for 3 files in photos/...
+
+Found:
+  ✓ image1.jpg → photos/Wallpapers/Nature/image1.jpg
+  ✓ sunset.png → photos/Personal/Travel/sunset.png
+  ✗ missing.jpg → NOT FOUND
+
+Results: 2 found, 1 missing
+```
+
+**found.csv:**
+```csv
+filename,found,path
+image1.jpg,true,photos/Wallpapers/Nature/image1.jpg
+sunset.png,true,photos/Personal/Travel/sunset.png
+missing.jpg,false,
+```
+
+---
+
+### **11. List Files**
+
+List all images in folder.
+
+```bash
+# List all images (console)
+python tagger.py list-files photos/
+
+# Export to text file
+python tagger.py list-files photos/ --output all_files.txt
+
+# Export with full paths
+python tagger.py list-files photos/ --full-paths --output files.txt
+
+# Export to CSV
+python tagger.py list-files photos/ --format csv --output files.csv
+```
+
+**Console Output:**
+```
+Found 88 images in photos/:
+  image1.jpg
+  image2.png
+  subfolder/vacation.jpg
+  ...
+```
+
+**files.csv:**
+```csv
+filename,path,size_bytes,format
+image1.jpg,photos/Wallpapers/Nature/image1.jpg,4523890,JPEG
+image2.png,photos/Personal/image2.png,2341567,PNG
+```
+
+---
+
+### **12. Sort by Tags**
+
+Create temporary tag-based sorted folder views.
+
+```bash
+# Create sorted views
 python tagger.py sort photos/
 
-# Result:
-# photos/sorted/travel/        ← copies of images tagged "travel"
-# photos/sorted/beach/         ← copies of images tagged "beach"
-# photos/sorted/wallpaper/     ← copies of images tagged "wallpaper"
+# Preserve folder hierarchy
+python tagger.py sort photos/ --preserve-hierarchy
+
+# Clear and re-sort
+python tagger.py sort photos/ --clear
+
+# Sort specific tags only
+python tagger.py sort photos/ --tags wallpapers nature
+```
+
+**Output:**
+```
+[SORT] Scanning photos/ recursively...
+Found 88 images
+
+Creating sorted structure:
+  ├─ sorted/nature/         (18 images)
+  ├─ sorted/wallpapers/     (12 images)
+  ├─ sorted/travel/         (10 images)
+  └─ sorted/beach/          (8 images)
+
+[✓] Sorted view created at: photos/sorted/
+```
+
+**Result:**
+```
+photos/
+├── image1.jpg (original)
+├── image2.png (original)
+└── sorted/
+    ├── nature/
+    │   ├── image1.jpg (copy)
+    │   └── image3.jpg (copy)
+    └── wallpapers/
+        └── image1.jpg (copy)
 ```
 
 ---
 
-## **7. Use Cases**
+### **13. Remove Sorted Folders**
 
-### **Use Case 1: Photographer Portfolio**
-- Tag images by client, project, style
-- Export CSV for client reporting
-- Create collections for specific deliverables
-- Sort by tag for quick browsing
+Remove temporary sorted folders.
 
-### **Use Case 2: Wallpaper Curator**
-- Tag by resolution, orientation, theme
-- Export and analyze with custom scripts
-- Generate filtered collections (e.g., "4K nature wallpapers")
-- Maintain organization as collection grows
+```bash
+# Remove sorted folders
+python tagger.py unsort photos/
 
-### **Use Case 3: Digital Archivist**
-- One-time auto-tag from existing folder structure
-- Export CSV as inventory backup
-- Verify metadata integrity periodically
-- Create curated collections for different audiences
+# Preview what will be deleted
+python tagger.py unsort photos/ --dry-run
+```
 
----
+**Output:**
+```
+[UNSORT] Removing sorted folders from photos/...
 
-## **8. Benefits**
+Found sorted folder: photos/sorted/
+  Contains: 7 subfolders, 88 files (duplicates)
 
-### **vs. Cloud Services (Google Photos, iCloud)**
-✅ Complete offline operation  
-✅ No subscription fees  
-✅ No file size/count limits  
-✅ Full data ownership  
+Remove? (y/n): y
 
-### **vs. Professional Software (Lightroom, ACDSee)**
-✅ Free and open source  
-✅ Simple, focused feature set  
-✅ CLI automation capabilities  
-✅ No database files to manage  
-
-### **vs. OS File Tags (Windows/Mac)**
-✅ Cross-platform compatibility  
-✅ Tags embedded in files (not OS-dependent)  
-✅ Hierarchical tag support  
-✅ Scriptable and extensible  
-
-### **vs. Folder-based Organization**
-✅ Multi-dimensional organization (images can have multiple tags)  
-✅ Flexible querying via CSV export  
-✅ Searchable without moving files  
-✅ Preserves original folder structure  
+[✓] Sorted folders removed
+    Freed: 156.8 MB
+```
 
 ---
 
-## **9. Project Scope**
+### **14. Verify Metadata**
 
-### **In Scope**
-- Core tagging operations (add, remove, read)
-- CSV export/import for backup and portability
-- Collection creation from filename lists
-- Temporary tag-based sorting
-- Basic verification and statistics
-- CLI interface only
+Check metadata integrity across collection.
 
-### **Out of Scope (External Scripts)**
-- Complex tag queries (AND/OR/NOT logic)
-- Statistical analysis and reporting
-- AI/ML-based auto-tagging
-- Duplicate image detection
-- GUI interface
-- Cloud integration
+```bash
+# Verify all images
+python tagger.py verify photos/
 
-**Rationale:** Keeping the core tool simple and focused allows users to build custom analysis pipelines using their preferred tools (pandas, R, Excel, etc.). The CSV export provides a clean interface between tagging operations and advanced analysis.
+# Verify and attempt repair
+python tagger.py verify photos/ --repair
 
----
+# Export verification report
+python tagger.py verify photos/ --output report.txt
 
-## **10. Success Criteria**
+# Export to CSV
+python tagger.py verify photos/ --format csv --output report.csv
+```
 
-### **Functional Requirements**
-- ✅ Successfully tag/untag 1,000+ images in seconds
-- ✅ 100% metadata portability (XMP standard compliance)
-- ✅ Zero data loss (non-destructive operations only)
-- ✅ Cross-platform compatibility verified
+**Console Output:**
+```
+Verifying metadata in photos/...
 
-### **Performance Targets**
-- List 10,000 tags in <2 seconds
-- Export 10,000 images to CSV in <10 seconds
-- Create collection of 100 images in <5 seconds
-- Sort 1,000 images by tags in <15 seconds
+✓ Valid: 85 images (96.6%)
+⚠ Warnings: 2 images (2.3%)
+  - corrupted.jpg: Metadata corrupted
+  - old_file.png: No XMP metadata
 
-### **Usability Goals**
-- New user productive in <10 minutes
-- Complete documentation with examples
-- Consistent command structure across all operations
-- Clear error messages with actionable guidance
+✗ Errors: 1 image (1.1%)
+  - broken.jpg: Cannot read file
 
----
+Summary: 87/88 readable (98.9%)
+```
 
-## **11. Deliverables**
-
-1. **tagger.py** - Complete CLI tool with all Phase 1 features
-2. **README.md** - Installation, usage, and examples
-3. **User Guide** - Detailed command reference and workflows
-4. **Example Scripts** - Sample external analysis scripts (Python, R)
-5. **Test Suite** - Unit tests for core operations
-6. **Configuration** - Optional YAML config for defaults
+**report.csv:**
+```csv
+filepath,status,issue
+photos/image1.jpg,valid,
+photos/corrupted.jpg,warning,Metadata corrupted
+photos/broken.jpg,error,Cannot read file
+```
 
 ---
 
-## **12. Future Enhancements (Phase 2+)**
+### **15. Basic Statistics**
 
-- Global tag renaming
-- Batch tag operations from CSV
-- JSON export format option
-- Collection update/refresh
-- Symlink mode for collections
-- Auto-repair corrupted metadata
-- Import from other tagging systems
+Show collection statistics.
+
+```bash
+# Basic stats (console)
+python tagger.py stats photos/
+
+# Detailed stats
+python tagger.py stats photos/ --detailed
+
+# Export stats
+python tagger.py stats photos/ --output stats.txt
+
+# Export to CSV
+python tagger.py stats photos/ --format csv --output stats.csv
+```
+
+**Console Output:**
+```
+Statistics for photos/:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Files:
+  Total images: 88
+  Total size: 1.2 GB
+  Average size: 14.3 MB
+
+Formats:
+  JPG:  64 (72.7%)
+  PNG:  18 (20.5%)
+  WEBP:  6 (6.8%)
+
+Tags:
+  Images with tags: 85 (96.6%)
+  Images without tags: 3 (3.4%)
+  Distinct tags: 15
+  Avg tags per image: 2.8
+```
+
+**stats.csv:**
+```csv
+metric,value
+total_images,88
+total_size_bytes,1288490188
+total_size_mb,1228.8
+avg_size_mb,14.3
+format_jpg,64
+format_png,18
+format_webp,6
+images_with_tags,85
+images_without_tags,3
+distinct_tags,15
+avg_tags_per_image,2.8
+```
+
+---
+
+## **Common Workflows**
+
+### **Workflow 1: Initial Setup**
+
+```bash
+# 1. One-time auto-tag from existing folder structure
+python tagger.py auto-tag photos/
+
+# 2. Add manual tags
+python tagger.py add photos/favorites/*.jpg favorite
+
+# 3. Export backup
+python tagger.py export photos/ --output backup_$(date +%Y%m%d).csv
+
+# 4. Create sorted views for browsing
+python tagger.py sort photos/
+```
+
+---
+
+### **Workflow 2: Query & Collect**
+
+```bash
+# 1. Export all tags
+python tagger.py export photos/ --output all_tags.csv
+
+# 2. External analysis (filter CSV, create file list)
+# ... user or external script processes CSV ...
+
+# 3. Create collection from results
+python tagger.py collect photos/ selected.txt collections/beach_sunsets/
+```
+
+---
+
+### **Workflow 3: Backup & Restore**
+
+```bash
+# Create backup
+python tagger.py export photos/ --output backup.csv
+
+# Simulate disaster: all tags lost
+# ... tags somehow deleted ...
+
+# Restore from backup
+python tagger.py import backup.csv --mode overwrite
+
+# Verify restoration
+python tagger.py verify photos/
+```
+
+---
+
+## **CSV Formats**
+
+### **Tag Export (from `export` command):**
+```csv
+filepath,tags
+photos/image1.jpg,"wallpapers,nature,4k"
+photos/image2.png,"personal,travel,beach"
+```
+
+### **Tag List with Counts (from `list-tags --format csv`):**
+```csv
+tag,count
+nature,18
+wallpapers,12
+travel,10
+beach,8
+4k,12
+```
+
+### **File List (from `list-files --format csv`):**
+```csv
+filename,path,size_bytes,format
+image1.jpg,photos/Wallpapers/Nature/image1.jpg,4523890,JPEG
+image2.png,photos/Personal/image2.png,2341567,PNG
+```
+
+### **Verification Report (from `verify --format csv`):**
+```csv
+filepath,status,issue
+photos/image1.jpg,valid,
+photos/corrupted.jpg,warning,Metadata corrupted
+photos/broken.jpg,error,Cannot read file
+```
+
+### **Collection Input (for `collect` command):**
+```
+image1.jpg
+sunset.png
+vacation.jpg
+```
+or
+```csv
+filename
+image1.jpg
+sunset.png
+vacation.jpg
+```
+
+---
+
+## **Configuration**
+
+Optional `tagger.config.yaml` for defaults:
+
+```yaml
+# Default settings
+auto_tag:
+  max_depth: null
+  normalize_case: lowercase
+  replace_spaces: true
+
+sort:
+  collision_strategy: rename
+  preserve_hierarchy: false
+
+collection:
+  duplicates_mode: first
+  use_symlinks: false
+```
+
+---
+
+## **Supported Formats**
+
+- JPEG (`.jpg`, `.jpeg`)
+- PNG (`.png`)
+- WebP (`.webp`)
+- TIFF (`.tiff`, `.tif`)
+
+---
+
+## **Requirements**
+
+- Python 3.10+
+- `py3exiv2` library
+
+
+## **FAQ**
+
+**Q: Where are tags stored?**  
+A: In XMP metadata (`Xmp.dc.subject` field) embedded in image files.
+
+**Q: Are original images modified?**  
+A: Only metadata is modified. Image data is never changed. Sorted folders contain copies.
+
+**Q: Can I use this with Lightroom/other tools?**  
+A: Yes! XMP tags are standard and readable by Adobe products and most image software.
+
+**Q: What if I have duplicate filenames in different folders?**  
+A: `collect` command has `--duplicates` flag: `first` (default), `all`, or `skip`.
+
+**Q: Can I run this on Windows?**  
+A: Yes. Use backslashes or forward slashes for paths: `python tagger.py list-tags C:\Photos\`
+
+**Q: How do I query by complex criteria?**  
+A: Export to CSV, then use external tools (pandas, Excel, R) to filter. Then use `collect` to create collections from results.
+
+---
