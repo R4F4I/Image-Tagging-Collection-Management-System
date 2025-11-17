@@ -1,192 +1,327 @@
+#!/usr/bin/env python3
+"""
+Image Tagger CLI
+Lightweight, offline tool for managing image collections 
+through embedded XMP metadata tags.
+"""
+
 import os
-import csv
 import sys
-import argparse
 import re
-from collections import Counter
+import csv
+import glob
+import argparse
 from pathlib import Path
-from glob import glob
+from collections import Counter
 
 # Try importing the library, handle error if missing
 try:
     import pyexiv2
 except ImportError:
     sys.exit("Error: pyexiv2 not found. Install it via 'pip install pyexiv2'")
+except RuntimeError as e:
+    sys.exit(f"Error importing pyexiv2: {e}\nTry reinstalling 'pyexiv2'.")
 
 SUPPORTED_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff'}
 
-# --- CORE "ENGINE" FUNCTIONS (READ & WRITE) ---
+# --- CORE METADATA ENGINE ---
+
+def _get_long_path_str(filepath):
+    """
+    Returns a Windows-compatible long path string (e.g., \\?\)
+    if on Windows. Otherwise, returns the original path string.
+    """
+    path_str = str(filepath)
+    if os.name == 'nt':
+        # Use Windows long path prefix
+        return "\\\\?\\" + path_str
+    return path_str
 
 def get_tags_from_file(filepath):
-    """Safely extracts XMP tags from a single file using pyexiv2."""
+    """
+    Safely extracts XMP tags (Xmp.dc.subject) from a single file.
+    Returns a list of tags.
+    """
     try:
-        img = pyexiv2.Image(str(filepath))
-        xmp_data = img.read_xmp()
+        path_str = _get_long_path_str(filepath)
+        img = pyexiv2.Image(path_str)
+        metadata = img.read_xmp()
         img.close()
-        return xmp_data.get('Xmp.dc.subject', []) or []
-    except Exception:
-        return [] 
-
-def modify_tags_on_file(filepath, tags, mode='merge'):
-    """
-    Core "engine" function to add, remove, or overwrite tags on a file.
-    Modes:
-      - 'merge': Adds tags, ensuring no duplicates.
-      - 'remove': Removes specified tags.
-      - 'overwrite': Replaces all existing tags with new ones.
-      
-    Returns (success_bool, final_tags_list)
-    """
-    try:
-        img = pyexiv2.Image(str(filepath))
-        xmp_data = img.read_xmp()
-        existing_tags_set = set(xmp_data.get('Xmp.dc.subject', []) or [])
-        tags_set = set(tags)
         
+        tag_key = 'Xmp.dc.subject'
+        if tag_key in metadata:
+            return metadata[tag_key] # pyexiv2 returns a list
+        else:
+            return []
+    except Exception as e:
+        print(f"[!] Warning: Could not read {filepath.name}: {e}", file=sys.stderr)
+        return []
+
+def modify_tags_on_file(filepath, tags_to_process, mode='merge'):
+    """
+    Core engine function to add, remove, or overwrite tags on a file.
+
+    Args:
+        filepath (Path): The image file.
+        tags_to_process (list): The list of tags to add/remove.
+        mode (str): 
+            'merge' (default): Add new tags, ensuring no duplicates.
+            'remove': Remove specified tags.
+            'overwrite': Erase all old tags and replace with new ones.
+
+    Returns:
+        (bool, list): (Success, final_list_of_tags)
+    """
+    existing_tags_set = set()
+    try:
+        path_str = _get_long_path_str(filepath)
+        
+        # 1. Read existing tags
+        # We must use 'with' or 'img.close()' to release the file lock
+        try:
+            img_read = pyexiv2.Image(path_str)
+            metadata = img_read.read_xmp()
+            img_read.close()
+            
+            tag_key = 'Xmp.dc.subject'
+            if tag_key in metadata:
+                existing_tags_set = set(metadata[tag_key])
+        except Exception:
+            pass # File might be new or unreadable, start with empty set
+
+        new_tags_set = set(tags_to_process)
+
+        # 2. Apply logic based on mode
         if mode == 'merge':
-            updated_tags_set = existing_tags_set | tags_set
+            final_tags_set = existing_tags_set.union(new_tags_set)
         elif mode == 'remove':
-            updated_tags_set = existing_tags_set - tags_set
+            final_tags_set = existing_tags_set.difference(new_tags_set)
         elif mode == 'overwrite':
-            updated_tags_set = tags_set
+            final_tags_set = new_tags_set
         else:
             raise ValueError(f"Unknown mode: {mode}")
-            
-        updated_tags = sorted(list(updated_tags_set))
-        img.modify_xmp({'Xmp.dc.subject': updated_tags})
-        img.close()
+
+        # 3. Write new tags
+        # Convert set back to list for pyexiv2
+        final_tags_list = sorted(list(final_tags_set))
         
-        return (True, updated_tags)
-        
+        # Open in read/write mode to modify
+        img_write = pyexiv2.Image(path_str)
+        img_write.modify_xmp({'Xmp.dc.subject': final_tags_list})
+        img_write.close()
+
+        return (True, final_tags_list)
+
     except Exception as e:
-        print(f"  [!] Error writing to {filepath.name}: {e}", file=sys.stderr)
+        print(f"[!] Error writing to {filepath.name}: {e}", file=sys.stderr)
+        # Return the original tags if modification failed
         return (False, list(existing_tags_set))
 
-# --- "FINDER" HELPER FUNCTION ---
+# --- FILE/PATH HELPERS ---
 
 def resolve_paths(path_str, recursive=False):
     """
-    Resolves a path string (file, dir, or glob) into a list of image files.
+    Resolves a path string (file, dir, glob) into a list of image Paths.
     """
-    p = Path(path_str)
-    files_found = []
+    path = Path(path_str)
+    if path.is_file():
+        if path.suffix.lower() in SUPPORTED_EXTS:
+            return [path]
+        return []
     
-    if '*' in path_str:
-        # It's a glob
-        for f in glob(path_str, recursive=recursive):
-            if Path(f).suffix.lower() in SUPPORTED_EXTS:
-                files_found.append(Path(f))
-    elif p.is_dir():
-        # It's a directory
+    if path.is_dir():
         if recursive:
-            for root, dirs, files in os.walk(p):
+            # Use os.walk for efficient recursive search
+            image_files = []
+            for root, _, files in os.walk(path):
                 for file in files:
                     if Path(file).suffix.lower() in SUPPORTED_EXTS:
-                        files_found.append(Path(root) / file)
+                        image_files.append(Path(root) / file)
+            return image_files
         else:
-            # Not recursive
-            for f in p.iterdir():
-                if f.is_file() and f.suffix.lower() in SUPPORTED_EXTS:
-                    files_found.append(f)
-    elif p.is_file():
-        # It's a single file
-        if p.suffix.lower() in SUPPORTED_EXTS:
-            files_found.append(p)
-            
-    return files_found
+            # Non-recursive, just this directory
+            return [f for f in path.iterdir() if f.suffix.lower() in SUPPORTED_EXTS]
+    
+    # If not a file or dir, try as glob
+    # Note: glob.glob is non-recursive by default
+    image_files = []
+    for f_name in glob.glob(path_str):
+        f_path = Path(f_name)
+        if f_path.suffix.lower() in SUPPORTED_EXTS:
+            image_files.append(f_path)
+    
+    if not image_files:
+        print(f"Warning: No files matched '{path_str}'", file=sys.stderr)
+        
+    return image_files
 
-# --- COMMAND IMPLEMENTATION: ADD ---
+
+# --- COMMAND FUNCTIONS ---
 
 def cmd_add(args):
-    """Logic for 'add' command."""
-    print(f"Resolving path: {args.path}")
-    filepaths = resolve_paths(args.path, args.recursive)
+    """Logic for 'add' command. (Depends on resolve_paths, modify_tags_on_file)"""
+    image_files = resolve_paths(args.path, args.recursive)
     tags_to_add = args.tags
     
-    if not filepaths:
-        print(f"No valid image files found for target: {args.path}")
+    if not image_files:
+        print("No images found to tag.")
         return
         
-    print(f"Found {len(filepaths)} image(s). Adding tags: {tags_to_add}")
-    
+    print(f"Adding tags {tags_to_add} to {len(image_files)} image(s)...")
     success_count = 0
-    for path in filepaths:
-        success, final_tags = modify_tags_on_file(path, tags_to_add, mode='merge')
+    
+    for f in image_files:
+        success, final_tags = modify_tags_on_file(f, tags_to_add, mode='merge')
         if success:
-            print(f"  [✓] {path.name}: {final_tags}")
             success_count += 1
+            print(f"  [✓] {f.name}: {final_tags}")
+        else:
+            print(f"  [✗] {f.name}: Failed")
             
-    print(f"\nSummary: Successfully tagged {success_count}/{len(filepaths)} images")
-
-# --- COMMAND IMPLEMENTATION: REMOVE ---
+    print(f"\nSummary: Successfully tagged {success_count}/{len(image_files)} images.")
 
 def cmd_remove(args):
-    """Logic for 'remove' command."""
-    filepaths = resolve_paths(args.path, args.recursive)
+    """Logic for 'remove' command. (Depends on resolve_paths, modify_tags_on_file)"""
+    image_files = resolve_paths(args.path, args.recursive)
     
-    if not filepaths:
-        print(f"No valid image files found for target: {args.path}")
+    if not image_files:
+        print("No images found to modify.")
         return
-
-    if args.all:
-        mode = 'overwrite'
-        tags = []
-        print(f"Found {len(filepaths)} image(s). Removing ALL tags.")
-    else:
-        mode = 'remove'
-        tags = args.tags
-        print(f"Found {len(filepaths)} image(s). Removing tags: {tags}")
 
     success_count = 0
-    for path in filepaths:
-        success, final_tags = modify_tags_on_file(path, tags, mode=mode)
-        if success:
-            print(f"  [✓] {path.name}: {final_tags}")
-            success_count += 1
+    
+    if args.all:
+        print(f"Removing ALL tags from {len(image_files)} image(s)...")
+        for f in image_files:
+            success, final_tags = modify_tags_on_file(f, [], mode='overwrite')
+            if success:
+                success_count += 1
+                print(f"  [✓] {f.name}: All tags removed.")
+            else:
+                print(f"  [✗] {f.name}: Failed")
+    else:
+        tags_to_remove = args.tags
+        if not tags_to_remove:
+            print("Error: No tags specified to remove. Use --all to remove all tags.")
+            return
             
-    print(f"\nSummary: Successfully modified {success_count}/{len(filepaths)} images")
-
-# --- COMMAND IMPLEMENTATION: READ ---
+        print(f"Removing tags {tags_to_remove} from {len(image_files)} image(s)...")
+        for f in image_files:
+            success, final_tags = modify_tags_on_file(f, tags_to_remove, mode='remove')
+            if success:
+                success_count += 1
+                print(f"  [✓] {f.name}: {final_tags}")
+            else:
+                print(f"  [✗] {f.name}: Failed")
+            
+    print(f"\nSummary: Successfully modified {success_count}/{len(image_files)} images.")
 
 def cmd_read(args):
-    """Logic for 'read' command."""
-    filepaths = resolve_paths(args.path, args.recursive)
+    """Logic for 'read' command. (Depends on resolve_paths, get_tags_from_file)"""
+    image_files = resolve_paths(args.path, args.recursive)
     
-    if not filepaths:
-        print(f"No valid image files found for target: {args.path}")
+    if not image_files:
+        print("No images found to read.")
         return
 
-    output_data = []
+    output_lines = []
     
-    # Header for CSV
     if args.format == 'csv':
-        output_data.append(["filename", "tags"])
-
-    for path in filepaths:
-        tags = get_tags_from_file(path)
-        tag_string = ",".join(tags)
+        output_lines.append("filename,tags")
+        
+    for f in image_files:
+        tags = get_tags_from_file(f)
+        tags_str = ",".join(tags)
         
         if args.format == 'csv':
-            output_data.append([path.name, tag_string])
-        elif args.format == 'txt':
-            output_data.append("\n".join(tags))
-        else: # console
-            print(f"{path.name}: {tag_string}")
+            output_lines.append(f'"{f.name}","{tags_str}"')
+        else: # txt/console
+            output_lines.append(f"{f.name}: {tags_str}")
 
-    # Write to file if --output is specified
+    content = "\n".join(output_lines)
+    
     if args.output:
         try:
-            with open(args.output, 'w', encoding='utf-8', newline='') as f:
-                if args.format == 'csv':
-                    writer = csv.writer(f)
-                    writer.writerows(output_data)
-                else: # txt
-                    f.write("\n".join(output_data))
+            with open(args.output, 'w', encoding='utf-8') as f:
+                f.write(content)
             print(f"[✓] Output saved to: {args.output}")
         except IOError as e:
             print(f"Error writing file: {e}")
+    else:
+        print(content)
 
-# --- COMMAND IMPLEMENTATION: AUTO-TAG ---
+def cmd_list_tags(args):
+    """Logic for 'list-tags' command. (Depends on get_tags_from_file)"""
+    target_dir = Path(args.path)
+    if not target_dir.exists():
+        sys.exit(f"Error: Directory '{target_dir}' not found.")
+
+    print(f"Scanning {target_dir} for tags...")
+    
+    tag_counts = Counter()
+    total_images = 0
+    tagged_images = 0
+
+    # Recursive Scan
+    for root, dirs, files in os.walk(target_dir):
+        for file in files:
+            if Path(file).suffix.lower() in SUPPORTED_EXTS:
+                full_path = Path(root) / file
+                total_images += 1
+                
+                tags = get_tags_from_file(full_path)
+                if tags:
+                    tagged_images += 1
+                    tag_counts.update(tags)
+
+    # Sorting Logic
+    sorted_tags = list(tag_counts.items())
+    
+    if args.sort == 'count':
+        sorted_tags.sort(key=lambda x: (-x[1], x[0]))
+    else:
+        sorted_tags.sort(key=lambda x: x[0])
+
+    # Output Formatting
+    output_lines = []
+    
+    if args.format == 'csv':
+        output_lines.append("tag,count")
+        for tag, count in sorted_tags:
+            output_lines.append(f"{tag},{count}")
+    
+    else: # text or console format
+        if not sorted_tags:
+            output_lines.append("No tags found.")
+        else:
+            output_lines.append("All distinct tags:")
+            output_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            max_len = max((len(t[0]) for t in sorted_tags), default=10) + 5
+            
+            for tag, count in sorted_tags:
+                if args.counts:
+                    line = f"{tag:<{max_len}} ({count} images)"
+                else:
+                    line = tag
+                output_lines.append(line)
+                
+            output_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            output_lines.append(f"Total: {len(sorted_tags)} distinct tags")
+            output_lines.append(f"Scanned: {total_images} images ({tagged_images} tagged)")
+
+    # Write Output
+    content = "\n".join(output_lines)
+    
+    if args.output:
+        try:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print(f"[✓] Output saved to: {args.output}")
+        except IOError as e:
+            print(f"Error writing file: {e}")
+    else:
+        print(content)
 
 def cmd_auto_tag(args):
     """Logic for 'auto-tag' command. (Depends on modify_tags_on_file)"""
@@ -229,11 +364,23 @@ def cmd_auto_tag(args):
         if parts:
             if args.max_depth and len(parts) > args.max_depth:
                 parts = parts[:args.max_depth]
+            
             current_chain = ""
+            individual_parts_tags = set()
+            hierarchical_tags = []
+
             for part in parts:
-                current_chain_part = part.lower() 
-                current_chain = f"{current_chain}/{current_chain_part}" if current_chain else current_chain_part
-                generated_tags.append(current_chain)
+                part_lower = part.lower()
+                
+                # 1. Add individual tag (e.g., 'a', 'b', 'c')
+                individual_parts_tags.add(part_lower)
+                
+                # 2. Build and add hierarchical tag (e.g., 'a', 'a/b', 'a/b/c')
+                current_chain = f"{current_chain}/{part_lower}" if current_chain else part_lower
+                hierarchical_tags.append(current_chain)
+            
+            generated_tags.extend(list(individual_parts_tags))
+            generated_tags.extend(hierarchical_tags)
 
         if args.tags_from_filename:
             stem = img_path.stem
@@ -250,13 +397,13 @@ def cmd_auto_tag(args):
         print(f"  {relative_path}")
         
         if args.dry_run:
-            print(f"    Tags (Dry Run): {generated_tags}")
+            print(f"    Tags (Dry Run): {sorted(list(set(generated_tags)))}")
         else:
             # USE THE "ENGINE" FUNCTION
             success, final_tags = modify_tags_on_file(img_path, generated_tags, mode='merge')
             if success:
                 print(f"    Tags: {final_tags}")
-                total_tags_added += len(generated_tags)
+                total_tags_added += len(set(generated_tags).difference(set(get_tags_from_file(img_path))))
             
     avg_tags = (total_tags_added / processed_images) if processed_images > 0 else 0
     print("\nSummary:")
@@ -269,121 +416,61 @@ def cmd_auto_tag(args):
         print("\nDRY-RUN complete. No files were changed.")
 
 
-# --- COMMAND IMPLEMENTATION: LIST-TAGS ---
+# --- MAIN CLI ROUTER ---
 
-def cmd_list_tags(args):
-    """Logic for 'list-tags' command. (Depends on get_tags_from_file)"""
-    target_dir = Path(args.path)
-    if not target_dir.exists():
-        sys.exit(f"Error: Directory '{target_dir}' not found.")
+def main():
+    parser = argparse.ArgumentParser(
+        description="Lightweight, offline CLI tool for managing image collections through embedded XMP metadata tags.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    subparsers = parser.add_subparsers(dest='command', required=True, help="Available commands")
 
-    print(f"Scanning {target_dir} for tags...")
-    tag_counts = Counter()
-    total_images = 0
-    tagged_images = 0
-
-    for root, dirs, files in os.walk(target_dir):
-        for file in files:
-            if Path(file).suffix.lower() in SUPPORTED_EXTS:
-                full_path = Path(root) / file
-                total_images += 1
-                
-                # USE THE "ENGINE" FUNCTION
-                tags = get_tags_from_file(full_path)
-                if tags:
-                    tagged_images += 1
-                    tag_counts.update(tags)
-
-    sorted_tags = list(tag_counts.items())
-    if args.sort == 'count':
-        sorted_tags.sort(key=lambda x: (-x[1], x[0]))
-    else:
-        sorted_tags.sort(key=lambda x: x[0])
-
-    output_lines = []
-    if args.format == 'csv':
-        output_lines.append("tag,count")
-        for tag, count in sorted_tags:
-            output_lines.append(f"{tag},{count}")
-    else:
-        if not sorted_tags:
-            output_lines.append("No tags found.")
-        else:
-            output_lines.append("All distinct tags:")
-            output_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            max_len = max((len(t[0]) for t in sorted_tags), default=10) + 5
-            for tag, count in sorted_tags:
-                if args.counts:
-                    line = f"{tag:<{max_len}} ({count} images)"
-                else:
-                    line = tag
-                output_lines.append(line)
-            output_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            output_lines.append(f"Total: {len(sorted_tags)} distinct tags")
-            output_lines.append(f"Scanned: {total_images} images ({tagged_images} tagged)")
-
-    content = "\n".join(output_lines)
-    if args.output:
-        try:
-            with open(args.output, 'w', encoding='utf-8') as f:
-                f.write(content)
-            print(f"[✓] Output saved to: {args.output}")
-        except IOError as e:
-            print(f"Error writing file: {e}")
-    else:
-        print(content)
-
-# --- CLI ARGUMENT SETUP (MAIN BLOCK) ---
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Image Tagger CLI")
-    subparsers = parser.add_subparsers(dest='command', required=True)
-
-    # --- Add Parser ---
-    add_parser = subparsers.add_parser('add', help='Add tags to images')
-    add_parser.add_argument('path', help='File, glob, or folder to tag')
-    add_parser.add_argument('tags', nargs='+', help='Tags to add')
-    add_parser.add_argument('--recursive', '-r', action='store_true', help='Apply recursively if path is a folder')
+    # 1. Add Tags
+    add_parser = subparsers.add_parser('add', help='Add tags to images.')
+    add_parser.add_argument('path', help='File, directory, or glob pattern (e.g., "photos/*.jpg")')
+    add_parser.add_argument('tags', nargs='+', help='One or more tags to add (e.g., nature landscape)')
+    add_parser.add_argument('-r', '--recursive', action='store_true', help='Recursively search directories.')
     add_parser.set_defaults(func=cmd_add)
-    
-    # --- Remove Parser ---
-    remove_parser = subparsers.add_parser('remove', help='Remove tags from images')
-    remove_parser.add_argument('path', help='File, glob, or folder to modify')
-    remove_parser.add_argument('tags', nargs='*', help='Specific tags to remove (omit if using --all)')
-    remove_parser.add_argument('--all', action='store_true', help='Remove all tags from images')
-    remove_parser.add_argument('--recursive', '-r', action='store_true', help='Apply recursively if path is a folder')
+
+    # 2. Remove Tags
+    remove_parser = subparsers.add_parser('remove', help='Remove tags from images.')
+    remove_parser.add_argument('path', help='File, directory, or glob pattern.')
+    remove_parser.add_argument('tags', nargs='*', help='One or more tags to remove. (Omit for --all)')
+    remove_parser.add_argument('--all', action='store_true', help='Remove all tags from the image(s).')
+    remove_parser.add_argument('-r', '--recursive', action='store_true', help='Recursively search directories.')
     remove_parser.set_defaults(func=cmd_remove)
 
-    # --- Read Parser ---
-    read_parser = subparsers.add_parser('read', help='Read tags from images')
-    read_parser.add_argument('path', help='File, glob, or folder to read')
-    read_parser.add_argument('--recursive', '-r', action='store_true', help='Apply recursively if path is a folder')
-    read_parser.add_argument('--output', help='Output file path (optional)')
-    read_parser.add_argument('--format', choices=['console', 'txt', 'csv'], default='console', help='Output format')
+    # 3. Read Tags
+    read_parser = subparsers.add_parser('read', help='Read and display tags from image(s).')
+    read_parser.add_argument('path', help='File, directory, or glob pattern.')
+    read_parser.add_argument('-r', '--recursive', action='store_true', help='Recursively search directories.')
+    read_parser.add_argument('--output', help='Export tags to a file (e.g., tags.txt or tags.csv)')
+    read_parser.add_argument('--format', choices=['txt', 'csv'], default='txt', help='Output format (default: txt)')
     read_parser.set_defaults(func=cmd_read)
-
-    # --- List Tags Parser ---
-    list_parser = subparsers.add_parser('list-tags', help='List all distinct tags in collection')
-    list_parser.add_argument('path', help='Folder to scan')
-    list_parser.add_argument('--counts', action='store_true', help='Show image counts per tag')
-    list_parser.add_argument('--sort', choices=['alpha', 'count'], default='alpha', help='Sort order')
-    list_parser.add_argument('--output', help='Output file path (optional)')
-    list_parser.add_argument('--format', choices=['txt', 'csv'], default='txt', help='Output format')
+    
+    # 4. List All Tags
+    list_parser = subparsers.add_parser('list-tags', help='List all distinct tags in a collection.')
+    list_parser.add_argument('path', help='Root directory to scan.')
+    list_parser.add_argument('--counts', action='store_true', help='Show image counts per tag.')
+    list_parser.add_argument('--sort', choices=['alpha', 'count'], default='alpha', help='Sort order (default: alpha)')
+    list_parser.add_argument('--output', help='Export list to a file (e.g., tags.txt or tags.csv)')
+    list_parser.add_argument('--format', choices=['txt', 'csv'], default='txt', help='Output format (default: txt)')
     list_parser.set_defaults(func=cmd_list_tags)
 
-    # --- Auto-Tag Parser ---
-    auto_tag_parser = subparsers.add_parser('auto-tag', help='Auto-tag images from folder structure')
-    auto_tag_parser.add_argument('path', help='Root folder to scan')
-    auto_tag_parser.add_argument('--dry-run', action='store_true', help='Preview changes without writing')
-    auto_tag_parser.add_argument('--max-depth', type=int, help='Max folder depth to create tags from')
-    auto_tag_parser.add_argument('--tags-from-filename', action='store_true', help='Also create tags from filename (splitting by - and _)')
-    auto_tag_parser.set_defaults(func=cmd_auto_tag)
-    
-    # --- Run ---
+    # 5. Auto-tag from Folders
+    auto_parser = subparsers.add_parser('auto-tag', help='Generate hierarchical tags from folder structure.')
+    auto_parser.add_argument('path', help='Root directory to scan and tag.')
+    auto_parser.add_argument('--dry-run', action='store_true', help='Preview changes without writing any tags.')
+    auto_parser.add_argument('--max-depth', type=int, help='Limit folder hierarchy depth (e.g., 2 for a/b)')
+    auto_parser.add_argument('--tags-from-filename', action='store_true', help='Add tags from filename (split by - or _)')
+    auto_parser.set_defaults(func=cmd_auto_tag)
+
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+        
     args = parser.parse_args()
-    
-    # Validation for 'remove' command
-    if args.command == 'remove' and not args.all and not args.tags:
-        remove_parser.error("You must specify tags to remove, or use --all")
-    
     args.func(args)
+
+if __name__ == "__main__":
+    main()
