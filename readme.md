@@ -216,6 +216,23 @@ Summary:
   • Average tags per image: 2.1
 ```
 
+**auto-tag with file name**
+
+Auto-Tag with Filename (New Behavior)
+
+When you add the new `--tags-from-filename` flag, the script will:
+
+1. Get folder tags: ['ireland']
+
+2. Analyze filename `20230317-BallyvooneyCove_ROW5905528136_UHD:`
+
+```
+    20230317: kept -> 20230317
+    BallyvooneyCove: Kept -> ballyvooneycove
+    UHD: Kept -> uhd
+    ROW5905528136: kept -> ROW5905528136
+    Merge them all.
+```
 ---
 
 ### **6. Export Tags**
