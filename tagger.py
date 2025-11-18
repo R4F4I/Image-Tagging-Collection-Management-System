@@ -123,7 +123,7 @@ def resolve_paths(path_str, recursive=False):
     """
     Resolves a path string (file, dir, glob) into a list of image Paths.
     """
-    path = Path(path_str)
+    path = Path(path_str).resolve()
     if path.is_file():
         if path.suffix.lower() in SUPPORTED_EXTS:
             return [path]
@@ -145,7 +145,7 @@ def resolve_paths(path_str, recursive=False):
     # If not a file or dir, try as glob
     # Note: glob.glob is non-recursive by default
     image_files = []
-    for f_name in glob.glob(path_str):
+    for f_name in glob.glob(str(path)): # Use resolved path for glob
         f_path = Path(f_name)
         if f_path.suffix.lower() in SUPPORTED_EXTS:
             image_files.append(f_path)
@@ -252,7 +252,7 @@ def cmd_read(args):
 
 def cmd_list_tags(args):
     """Logic for 'list-tags' command. (Depends on get_tags_from_file)"""
-    target_dir = Path(args.path)
+    target_dir = Path(args.path).resolve() # Resolve to absolute path
     if not target_dir.exists():
         sys.exit(f"Error: Directory '{target_dir}' not found.")
 
@@ -415,6 +415,49 @@ def cmd_auto_tag(args):
     if args.dry_run:
         print("\nDRY-RUN complete. No files were changed.")
 
+def cmd_export(args):
+    """Logic for 'export' command. (Depends on resolve_paths, get_tags_from_file)"""
+    scan_path = Path(args.path).resolve() # Resolve to absolute path to prevent errors
+    if not scan_path.exists():
+        sys.exit(f"Error: Path '{scan_path}' not found.")
+
+    # The --no-recursive flag is the inverse of the recursive parameter
+    is_recursive = not args.no_recursive
+    
+    image_files = resolve_paths(args.path, recursive=is_recursive)
+
+    if not image_files:
+        print("No images found to export.")
+        return
+
+    print(f"Found {len(image_files)} images. Exporting to {args.output}...")
+
+    try:
+        with open(args.output, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['filepath', 'tags'])
+
+            for img_path in image_files:
+                tags = get_tags_from_file(img_path)
+                tags_str = ",".join(tags)
+
+                # Determine the path to write based on the --relative flag
+                if args.relative and scan_path.is_dir():
+                    try:
+                        # Make path relative to the initial scan directory
+                        display_path = img_path.relative_to(scan_path.resolve())
+                    except ValueError:
+                        display_path = img_path # Fallback if not a subpath
+                else:
+                    display_path = img_path
+
+                writer.writerow([str(display_path).replace('\\', '/'), tags_str])
+
+        print(f"[✓] Successfully exported data for {len(image_files)} images to {args.output}")
+
+    except IOError as e:
+        sys.exit(f"Error writing to file '{args.output}': {e}")
+
 
 # --- MAIN CLI ROUTER ---
 
@@ -464,6 +507,14 @@ def main():
     auto_parser.add_argument('--max-depth', type=int, help='Limit folder hierarchy depth (e.g., 2 for a/b)')
     auto_parser.add_argument('--tags-from-filename', action='store_true', help='Add tags from filename (split by - or _)')
     auto_parser.set_defaults(func=cmd_auto_tag)
+
+    # 6. Export Tags
+    export_parser = subparsers.add_parser('export', help='Export all image paths and tags to a CSV file.')
+    export_parser.add_argument('path', help='Root directory or path to scan.')
+    export_parser.add_argument('--output', required=True, help='Output CSV file path (e.g., all_tags.csv).')
+    export_parser.add_argument('--relative', action='store_true', help='Use paths relative to the input directory.')
+    export_parser.add_argument('--no-recursive', action='store_true', help='Disable recursive scanning of directories.')
+    export_parser.set_defaults(func=cmd_export)
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
