@@ -1,5 +1,9 @@
 # **Image Tagger**
 
+## members:
+- Syed Hanzala Ali (24k-0025)
+- Rafay Siddiqui (24k-0009)
+
 Lightweight, offline CLI tool for managing image collections through embedded XMP metadata tags.
 
 ---
