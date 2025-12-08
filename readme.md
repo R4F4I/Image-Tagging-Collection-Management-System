@@ -21,7 +21,7 @@ Lightweight, offline CLI tool for managing image collections through embedded XM
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/image-tagger.git 
+git clone https://github.com/R4F4I/Image-Tagging-Collection-Management-System.git
 cd image-tagger
 
 # Install dependencies
