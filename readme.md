@@ -33,20 +33,6 @@ python tagger.py --help
 
 ---
 
-## **Quick Start**
-
-```bash
-# Tag an image
-python tagger.py add photos/vacation.jpg travel beach sunset
-
-# List all tags
-python tagger.py list-tags photos/
-
-# Export tags to CSV
-python tagger.py export photos/ --output backup.csv
-```
-
----
 
 ## command graph
 
@@ -134,6 +120,240 @@ graph TB
 
 ```
 
+## command map
+
+```bash
+# ============================================================================
+# IMAGE TAGGER - ALL POSSIBLE COMMAND COMBINATIONS
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# 1. ADD - Add tags to images
+# ----------------------------------------------------------------------------
+tagger.py add <path> <tag1> [tag2 tag3 ...]
+tagger.py add <path> <tag1> [tag2 tag3 ...] --recursive
+
+# Examples:
+tagger.py add photo.jpg nature landscape
+tagger.py add photos/ wallpaper --recursive
+tagger.py add photos/*.jpg sunset beach
+tagger.py add photos/Nature/ nature trees --recursive
+
+# ----------------------------------------------------------------------------
+# 2. REMOVE - Remove tags from images
+# ----------------------------------------------------------------------------
+tagger.py remove <path> <tag1> [tag2 tag3 ...]
+tagger.py remove <path> <tag1> [tag2 tag3 ...] --recursive
+tagger.py remove <path> --all
+tagger.py remove <path> --all --recursive
+
+# Examples:
+tagger.py remove photo.jpg old_tag deprecated
+tagger.py remove photos/ unwanted --recursive
+tagger.py remove photo.jpg --all
+tagger.py remove photos/ --all --recursive
+tagger.py remove photos/*.png test_tag
+
+# ----------------------------------------------------------------------------
+# 3. READ - Display tags from images
+# ----------------------------------------------------------------------------
+tagger.py read <path>
+tagger.py read <path> --recursive
+tagger.py read <path> --output <file.txt>
+tagger.py read <path> --output <file.txt> --recursive
+tagger.py read <path> --format txt
+tagger.py read <path> --format txt --recursive
+tagger.py read <path> --format txt --output <file.txt>
+tagger.py read <path> --format txt --output <file.txt> --recursive
+tagger.py read <path> --format csv --output <file.csv>
+tagger.py read <path> --format csv --output <file.csv> --recursive
+
+# Examples:
+tagger.py read photo.jpg
+tagger.py read photos/ --recursive
+tagger.py read photos/ --output tags.txt --recursive
+tagger.py read photos/*.jpg --format csv --output tags.csv
+
+# ----------------------------------------------------------------------------
+# 4. LIST-TAGS - List all distinct tags in collection
+# ----------------------------------------------------------------------------
+tagger.py list-tags <path>
+tagger.py list-tags <path> --counts
+tagger.py list-tags <path> --sort alpha
+tagger.py list-tags <path> --sort count
+tagger.py list-tags <path> --counts --sort alpha
+tagger.py list-tags <path> --counts --sort count
+tagger.py list-tags <path> --output <file.txt>
+tagger.py list-tags <path> --output <file.txt> --counts
+tagger.py list-tags <path> --output <file.txt> --counts --sort alpha
+tagger.py list-tags <path> --output <file.txt> --counts --sort count
+tagger.py list-tags <path> --format txt
+tagger.py list-tags <path> --format txt --counts
+tagger.py list-tags <path> --format txt --counts --sort alpha
+tagger.py list-tags <path> --format txt --counts --sort count
+tagger.py list-tags <path> --format txt --output <file.txt>
+tagger.py list-tags <path> --format txt --output <file.txt> --counts
+tagger.py list-tags <path> --format txt --output <file.txt> --counts --sort alpha
+tagger.py list-tags <path> --format txt --output <file.txt> --counts --sort count
+tagger.py list-tags <path> --format csv --output <file.csv>
+tagger.py list-tags <path> --format csv --output <file.csv> --counts
+tagger.py list-tags <path> --format csv --output <file.csv> --counts --sort alpha
+tagger.py list-tags <path> --format csv --output <file.csv> --counts --sort count
+
+# Examples:
+tagger.py list-tags photos/
+tagger.py list-tags photos/ --counts
+tagger.py list-tags photos/ --counts --sort count
+tagger.py list-tags photos/ --output all_tags.txt --counts
+tagger.py list-tags photos/ --format csv --output tags.csv
+
+# ----------------------------------------------------------------------------
+# 5. AUTO-TAG - Generate hierarchical tags from folder structure
+# ----------------------------------------------------------------------------
+tagger.py auto-tag <path>
+tagger.py auto-tag <path> --dry-run
+tagger.py auto-tag <path> --max-depth <N>
+tagger.py auto-tag <path> --max-depth <N> --dry-run
+tagger.py auto-tag <path> --tags-from-filename
+tagger.py auto-tag <path> --tags-from-filename --dry-run
+tagger.py auto-tag <path> --tags-from-filename --max-depth <N>
+tagger.py auto-tag <path> --tags-from-filename --max-depth <N> --dry-run
+
+# Examples:
+tagger.py auto-tag photos/
+tagger.py auto-tag photos/ --dry-run
+tagger.py auto-tag photos/ --max-depth 2
+tagger.py auto-tag photos/ --tags-from-filename
+tagger.py auto-tag photos/ --tags-from-filename --max-depth 3 --dry-run
+
+# ----------------------------------------------------------------------------
+# 6. EXPORT - Export all image paths and tags to CSV
+# ----------------------------------------------------------------------------
+tagger.py export <path> --output <file.csv>
+tagger.py export <path> --output <file.csv> --relative
+tagger.py export <path> --output <file.csv> --no-recursive
+tagger.py export <path> --output <file.csv> --relative --no-recursive
+
+# Examples:
+tagger.py export photos/ --output all_tags.csv
+tagger.py export photos/ --output backup.csv --relative
+tagger.py export photos/Wallpapers/ --output wallpapers.csv --no-recursive
+tagger.py export photos/ --output tags.csv --relative --no-recursive
+
+# ============================================================================
+# PARAMETER REFERENCE
+# ============================================================================
+
+# <path>
+#   - Single file:        photo.jpg
+#   - Directory:          photos/
+#   - Glob pattern:       photos/*.jpg
+#   - Nested directory:   photos/Nature/Mountains/
+
+# <tag1> <tag2> ...
+#   - One or more tags:   nature landscape 4k wallpaper
+#   - Tags with text:     "my tag" (if spaces needed, use quotes)
+
+# --recursive, -r
+#   - Recursively search all subdirectories
+#   - Available for: add, remove, read
+
+# --all
+#   - Remove ALL tags from image(s)
+#   - Available for: remove
+
+# --output <file>
+#   - Save output to file instead of console
+#   - Available for: read, list-tags
+#   - File can be .txt or .csv
+
+# --format <txt|csv>
+#   - Output format
+#   - Available for: read, list-tags
+#   - Default: txt
+
+# --counts
+#   - Show image count per tag
+#   - Available for: list-tags
+
+# --sort <alpha|count>
+#   - Sort order: alphabetically or by count
+#   - Available for: list-tags
+#   - Default: alpha
+
+# --dry-run
+#   - Preview changes without writing
+#   - Available for: auto-tag
+
+# --max-depth <N>
+#   - Limit folder hierarchy depth
+#   - Available for: auto-tag
+#   - Example: --max-depth 2 (only 2 levels deep)
+
+# --tags-from-filename
+#   - Extract tags from filename (split by - and _)
+#   - Available for: auto-tag
+
+# --relative
+#   - Use relative paths in output
+#   - Available for: export
+
+# --no-recursive
+#   - Disable recursive scanning (only scan top level)
+#   - Available for: export
+
+# ============================================================================
+# COMMON WORKFLOW COMBINATIONS
+# ============================================================================
+
+# Initial Setup Workflow
+tagger.py auto-tag photos/ --dry-run                    # Preview
+tagger.py auto-tag photos/ --tags-from-filename         # Apply
+tagger.py add photos/favorites/ favorite --recursive    # Manual additions
+tagger.py export photos/ --output backup.csv            # Backup
+
+# Tag Management Workflow
+tagger.py list-tags photos/ --counts --sort count       # See popular tags
+tagger.py remove photos/ old_tag deprecated --recursive # Clean up
+tagger.py read photos/ --recursive                      # Verify
+
+# Backup & Analysis Workflow
+tagger.py export photos/ --output backup.csv --relative # Export
+# [Process CSV externally with Excel/pandas/scripts]
+tagger.py read photos/ --format csv --output current.csv --recursive # Compare
+
+# Inspection Workflow
+tagger.py read photo.jpg                                # Single image
+tagger.py read photos/ --recursive --output all.txt     # All images
+tagger.py list-tags photos/ --counts --output tags.txt  # Tag overview
+
+# Hierarchical Tagging Workflow
+tagger.py auto-tag photos/ --max-depth 2 --dry-run     # Preview limited depth
+tagger.py auto-tag photos/ --max-depth 2               # Apply limited depth
+tagger.py list-tags photos/ --counts                   # Verify hierarchy
+
+# Filename Tagging Workflow
+tagger.py auto-tag photos/ --tags-from-filename --dry-run  # Preview filename tags
+tagger.py auto-tag photos/ --tags-from-filename            # Apply filename tags
+tagger.py list-tags photos/ --counts --sort count          # See all tags
+
+```
+
+
+## **Quick Start**
+
+```bash
+# Tag an image
+python tagger.py add photos/vacation.jpg travel beach sunset
+
+# List all tags
+python tagger.py list-tags photos/
+
+# Export tags to CSV
+python tagger.py export photos/ --output backup.csv
+```
+
+---
 
 ## **Command Reference**
 
